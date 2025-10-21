@@ -1,0 +1,98 @@
+--// Serviços
+local RunService = game:GetService("RunService")
+
+--// Identificador do sistema
+local Flag = "BETTER_DRAWING"
+
+--// Tabelas internas
+local DrawingObjects = {}
+local BetterDrawing = { FLAG = Flag }
+
+--// Funções globais
+local Drawing = getgenv().Drawing
+local HookFunction = getgenv().hookfunction
+
+if not (Drawing and HookFunction) then
+    return warn("BetterDrawing: Drawing ou hookfunction não encontrados.")
+end
+
+--// Sistema de limpeza
+local cleardrawcache = getgenv().cleardrawcache or (function()
+    local OriginalNew
+    OriginalNew = HookFunction(Drawing.new, function(Type, PotentialFlag)
+        local Object = OriginalNew(Type)
+
+        if PotentialFlag == Flag then
+            table.insert(DrawingObjects, Object)
+        end
+
+        return Object
+    end)
+
+    return function()
+        for _, Object in ipairs(DrawingObjects) do
+            if Object and Object.Destroy then
+                Object:Destroy()
+            end
+        end
+        table.clear(DrawingObjects)
+    end
+end)()
+
+--// Tween interno
+do
+    local Tween = {}
+    local Lerp = {}
+
+    function Lerp:Any(Start, Destination, Time)
+        return Start + (Destination - Start) * Time
+    end
+
+    function Lerp:Vector2(Start, Destination, Time)
+        return Vector2.new(self:Any(Start.X, Destination.X, Time), self:Any(Start.Y, Destination.Y, Time))
+    end
+
+    function Tween:Cubic(T)
+        if T < 0.5 then
+            return 4 * T * T * T
+        else
+            local F = (2 * T) - 2
+            return 0.5 * F * F * F + 1
+        end
+    end
+
+    Tween.Lerp = Lerp
+
+    function Tween:SetValue(DrawingObject, Property, Destination, Time)
+        local Start = DrawingObject[Property]
+        if Start == nil then return end
+
+        local StartTime = tick()
+        local Class = typeof(Destination)
+
+        local Connection
+        Connection = RunService.PreSimulation:Connect(function()
+            local Progress = (tick() - StartTime) / Time
+            local Alpha = math.clamp(Progress, 0, 1)
+
+            DrawingObject[Property] = (Lerp[Class] or Lerp.Any)(Lerp, Start, Destination, Tween:Cubic(Alpha))
+
+            if Progress >= 1 then
+                DrawingObject[Property] = Destination
+                Connection:Disconnect()
+            end
+        end)
+    end
+
+    BetterDrawing.Tween = Tween
+end
+
+--// Inicializador
+function BetterDrawing:Init(UpdateFunction)
+    RunService.PreRender:Connect(function(DeltaTime)
+        UpdateFunction(DeltaTime)
+        cleardrawcache()
+    end)
+end
+
+return BetterDrawing
